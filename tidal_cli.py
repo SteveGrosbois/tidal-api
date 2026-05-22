@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tidal CLI - Headless CLI for Tidal API, designed for LLM agent automation."""
 
+import functools
 import json
 import logging
 import os
@@ -19,6 +20,27 @@ logging.getLogger("tidalapi").setLevel(logging.CRITICAL)
 logging.getLogger("requests").setLevel(logging.CRITICAL)
 logging.getLogger("httpx").setLevel(logging.CRITICAL)
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+
+
+def handle_errors(func):
+    """Décorateur : traduit ConnectionError et Exception en messages d'erreur Typer propres."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except typer.Exit:
+            raise
+        except requests.exceptions.ConnectionError:
+            typer.echo(
+                "Error: Unable to connect to Tidal. Check your network connection.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        except Exception as e:
+            typer.echo(f"Error: {e}", err=True)
+            raise typer.Exit(code=1)
+    return wrapper
+
 
 class SearchType(str, Enum):
     artist = "artist"
@@ -46,6 +68,11 @@ def main(
 ):
     """Tidal CLI - Headless CLI for LLM agent automation."""
     state["json_output"] = json_output
+
+
+def _fmt_duration(seconds: int) -> str:
+    m, s = divmod(seconds, 60)
+    return f"{m}:{s:02d}"
 
 
 # T004: Output helper
@@ -160,143 +187,146 @@ def search_main(
 
 # T008: Search artist (US2)
 @search_app.command("artist")
+@handle_errors
 def search_artist(
     query: str = typer.Argument(..., help="Artist name to search for."),
 ):
     """Search for an artist by name in the Tidal catalog."""
     session = load_session()
-    try:
-        results = session.search(query, models=[tidalapi.artist.Artist], limit=20)
-        artists = [{"id": a.id, "name": a.name} for a in results.get("artists", [])]
+    results = session.search(query, models=[tidalapi.artist.Artist], limit=20)
+    artists = [{"id": a.id, "name": a.name} for a in results.get("artists", [])]
 
-        def fmt(data):
-            if not data:
-                return ""
-            return "\n".join(f"ID: {a['id']}  Name: {a['name']}" for a in data)
+    def fmt(data):
+        if not data:
+            return ""
+        return "\n".join(f"ID: {a['id']}  Name: {a['name']}" for a in data)
 
-        output(artists, fmt)
-    except requests.exceptions.ConnectionError:
-        typer.echo(
-            "Error: Unable to connect to Tidal. Check your network connection.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+    output(artists, fmt)
 
 
 # T009: Search album (US2)
 @search_app.command("album")
+@handle_errors
 def search_album(
     query: str = typer.Argument(..., help="Album name to search for."),
 ):
     """Search for an album by name in the Tidal catalog."""
     session = load_session()
-    try:
-        results = session.search(query, models=[tidalapi.album.Album], limit=20)
-        albums = []
-        for a in results.get("albums", []):
-            artist_name = a.artist.name if a.artist else "Unknown"
-            year = getattr(a, "year", None)
-            if year is None and getattr(a, "release_date", None):
-                year = a.release_date.year
-            albums.append(
-                {"id": a.id, "name": a.name, "artist": artist_name, "year": year}
-            )
-
-        def fmt(data):
-            if not data:
-                return ""
-            return "\n".join(
-                f"ID: {a['id']}  Artist: {a['artist']}  Year: {a['year']}  Name: {a['name']}"
-                for a in data
-            )
-
-        output(albums, fmt)
-    except requests.exceptions.ConnectionError:
-        typer.echo(
-            "Error: Unable to connect to Tidal. Check your network connection.",
-            err=True,
+    results = session.search(query, models=[tidalapi.album.Album], limit=20)
+    albums = []
+    for a in results.get("albums", []):
+        artist_name = a.artist.name if a.artist else "Unknown"
+        year = getattr(a, "year", None)
+        if year is None and getattr(a, "release_date", None):
+            year = a.release_date.year
+        albums.append(
+            {"id": a.id, "name": a.name, "artist": artist_name, "year": year}
         )
-        raise typer.Exit(code=1)
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+
+    def fmt(data):
+        if not data:
+            return ""
+        return "\n".join(
+            f"ID: {a['id']}  Artist: {a['artist']}  Year: {a['year']}  Name: {a['name']}"
+            for a in data
+        )
+
+    output(albums, fmt)
 
 
 # T010: Search track (US2)
 @search_app.command("track")
+@handle_errors
 def search_track(
     query: str = typer.Argument(..., help="Track name to search for."),
 ):
     """Search for a track by name in the Tidal catalog."""
     session = load_session()
-    try:
-        results = session.search(query, models=[tidalapi.media.Track], limit=20)
-        tracks = [
-            {
-                "id": t.id,
-                "name": t.name,
-                "artist": t.artist.name if t.artist else "Unknown",
-            }
-            for t in results.get("tracks", [])
-        ]
+    results = session.search(query, models=[tidalapi.media.Track], limit=20)
+    tracks = [
+        {
+            "id": t.id,
+            "name": t.name,
+            "artist": t.artist.name if t.artist else "Unknown",
+        }
+        for t in results.get("tracks", [])
+    ]
 
-        def fmt(data):
-            if not data:
-                return ""
-            return "\n".join(
-                f"ID: {t['id']}  Artist: {t['artist']}  Name: {t['name']}"
-                for t in data
-            )
-
-        output(tracks, fmt)
-    except requests.exceptions.ConnectionError:
-        typer.echo(
-            "Error: Unable to connect to Tidal. Check your network connection.",
-            err=True,
+    def fmt(data):
+        if not data:
+            return ""
+        return "\n".join(
+            f"ID: {t['id']}  Artist: {t['artist']}  Name: {t['name']}"
+            for t in data
         )
-        raise typer.Exit(code=1)
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+
+    output(tracks, fmt)
 
 
 # T011: Playlist list (US3)
 @playlist_app.command("list")
+@handle_errors
 def playlist_list():
     """List playlists created by the user."""
     session = load_session()
-    try:
-        playlists = session.user.playlists()
-        data = [
-            {"id": str(p.id), "name": p.name, "num_tracks": p.num_tracks}
-            for p in playlists
-        ]
+    playlists = session.user.playlists()
+    data = [
+        {"id": str(p.id), "name": p.name, "num_tracks": p.num_tracks}
+        for p in playlists
+    ]
 
-        def fmt(data):
-            if not data:
-                return ""
-            return "\n".join(
-                f"ID: {p['id']}  Name: {p['name']} ({p['num_tracks']} tracks)"
-                for p in data
-            )
-
-        output(data, fmt)
-    except requests.exceptions.ConnectionError:
-        typer.echo(
-            "Error: Unable to connect to Tidal. Check your network connection.",
-            err=True,
+    def fmt(data):
+        if not data:
+            return ""
+        return "\n".join(
+            f"ID: {p['id']}  Name: {p['name']} ({p['num_tracks']} tracks)"
+            for p in data
         )
+
+    output(data, fmt)
+
+
+# T021: Playlist tracks
+@playlist_app.command("tracks")
+@handle_errors
+def playlist_tracks(
+    playlist_id: str = typer.Option(..., "--playlist-id", help="Playlist ID."),
+):
+    """List all tracks in a playlist."""
+    session = load_session()
+    try:
+        playlist = session.playlist(playlist_id)
+    except requests.exceptions.HTTPError:
+        typer.echo(f"Error: Playlist not found (ID: {playlist_id}).", err=True)
         raise typer.Exit(code=1)
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+
+    tracks = playlist.tracks()
+    data = [
+        {
+            "track_number": i,
+            "id": t.id,
+            "title": t.name,
+            "artist": t.artist.name if t.artist else "Unknown",
+            "album": t.album.name if t.album else "Unknown",
+            "duration_seconds": t.duration,
+        }
+        for i, t in enumerate(tracks, start=1)
+    ]
+
+    def fmt(data):
+        if not data:
+            return ""
+        return "\n".join(
+            f"{t['track_number']:>3}.  {t['title']}  —  {t['artist']}  [{t['album']}]  {_fmt_duration(t['duration_seconds'])}"
+            for t in data
+        )
+
+    output(data, fmt)
 
 
 # T012: Playlist create (US3)
 @playlist_app.command("create")
+@handle_errors
 def playlist_create(
     name: str = typer.Option(..., "--name", help="Playlist name."),
     desc: Optional[str] = typer.Option(None, "--desc", help="Playlist description."),
@@ -306,27 +336,18 @@ def playlist_create(
         typer.echo("Error: Playlist name cannot be empty.", err=True)
         raise typer.Exit(code=1)
     session = load_session()
-    try:
-        new_playlist = session.user.create_playlist(name, desc or "")
-        data = {
-            "id": str(new_playlist.id),
-            "name": name,
-            "description": desc,
-        }
-        output(data, lambda d: f"Created playlist: ID: {d['id']}")
-    except requests.exceptions.ConnectionError:
-        typer.echo(
-            "Error: Unable to connect to Tidal. Check your network connection.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+    new_playlist = session.user.create_playlist(name, desc or "")
+    data = {
+        "id": str(new_playlist.id),
+        "name": name,
+        "description": desc,
+    }
+    output(data, lambda d: f"Created playlist: ID: {d['id']}")
 
 
 # T013: Playlist rename (US3)
 @playlist_app.command("rename")
+@handle_errors
 def playlist_rename(
     playlist_id: str = typer.Option(..., "--playlist-id", help="Playlist ID to rename."),
     name: str = typer.Option(..., "--name", help="New playlist name."),
@@ -335,31 +356,23 @@ def playlist_rename(
     session = load_session()
     try:
         playlist = session.playlist(playlist_id)
-        old_name = playlist.name
-        playlist.edit(title=name)
-        data = {
-            "status": "success",
-            "id": str(playlist_id),
-            "old_name": old_name,
-            "new_name": name,
-        }
-        output(data, lambda d: f'Renamed playlist "{d["old_name"]}" to "{d["new_name"]}".')
     except requests.exceptions.HTTPError:
         typer.echo(f"Error: Playlist not found (ID: {playlist_id}).", err=True)
         raise typer.Exit(code=1)
-    except requests.exceptions.ConnectionError:
-        typer.echo(
-            "Error: Unable to connect to Tidal. Check your network connection.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+    old_name = playlist.name
+    playlist.edit(title=name)
+    data = {
+        "status": "success",
+        "id": str(playlist_id),
+        "old_name": old_name,
+        "new_name": name,
+    }
+    output(data, lambda d: f'Renamed playlist "{d["old_name"]}" to "{d["new_name"]}".')
 
 
 # T014: Playlist delete (US3)
 @playlist_app.command("delete")
+@handle_errors
 def playlist_delete(
     playlist_id: str = typer.Option(..., "--playlist-id", help="Playlist ID to delete."),
 ):
@@ -367,30 +380,22 @@ def playlist_delete(
     session = load_session()
     try:
         playlist = session.playlist(playlist_id)
-        playlist_name = playlist.name
-        playlist.delete()
-        data = {
-            "status": "success",
-            "id": str(playlist_id),
-            "name": playlist_name,
-        }
-        output(data, lambda d: f'Deleted playlist "{d["name"]}".')
     except requests.exceptions.HTTPError:
         typer.echo(f"Error: Playlist not found (ID: {playlist_id}).", err=True)
         raise typer.Exit(code=1)
-    except requests.exceptions.ConnectionError:
-        typer.echo(
-            "Error: Unable to connect to Tidal. Check your network connection.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+    playlist_name = playlist.name
+    playlist.delete()
+    data = {
+        "status": "success",
+        "id": str(playlist_id),
+        "name": playlist_name,
+    }
+    output(data, lambda d: f'Deleted playlist "{d["name"]}".')
 
 
 # T015: Playlist add-album (US4)
 @playlist_app.command("add-album")
+@handle_errors
 def playlist_add_album(
     playlist_id: str = typer.Option(..., "--playlist-id", help="Target playlist ID."),
     album_id: int = typer.Option(..., "--album-id", help="Album ID to add."),
@@ -398,44 +403,33 @@ def playlist_add_album(
     """Add all tracks from an album to an existing playlist."""
     session = load_session()
     try:
-        try:
-            album = session.album(album_id)
-        except requests.exceptions.HTTPError:
-            typer.echo(f"Error: Album not found (ID: {album_id}).", err=True)
-            raise typer.Exit(code=1)
-        try:
-            playlist = session.playlist(playlist_id)
-        except requests.exceptions.HTTPError:
-            typer.echo(f"Error: Playlist not found (ID: {playlist_id}).", err=True)
-            raise typer.Exit(code=1)
-        tracks = album.tracks()
-        track_ids = [str(t.id) for t in tracks]
-        playlist.add(track_ids)
-        data = {
-            "status": "success",
-            "tracks_added": len(track_ids),
-            "album": album.name,
-            "playlist": playlist.name,
-        }
-        output(
-            data,
-            lambda d: f'Added {d["tracks_added"]} tracks from album "{d["album"]}" to playlist "{d["playlist"]}".',
-        )
-    except typer.Exit:
-        raise
-    except requests.exceptions.ConnectionError:
-        typer.echo(
-            "Error: Unable to connect to Tidal. Check your network connection.",
-            err=True,
-        )
+        album = session.album(album_id)
+    except requests.exceptions.HTTPError:
+        typer.echo(f"Error: Album not found (ID: {album_id}).", err=True)
         raise typer.Exit(code=1)
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
+    try:
+        playlist = session.playlist(playlist_id)
+    except requests.exceptions.HTTPError:
+        typer.echo(f"Error: Playlist not found (ID: {playlist_id}).", err=True)
         raise typer.Exit(code=1)
+    tracks = album.tracks()
+    track_ids = [str(t.id) for t in tracks]
+    playlist.add(track_ids)
+    data = {
+        "status": "success",
+        "tracks_added": len(track_ids),
+        "album": album.name,
+        "playlist": playlist.name,
+    }
+    output(
+        data,
+        lambda d: f'Added {d["tracks_added"]} tracks from album "{d["album"]}" to playlist "{d["playlist"]}".',
+    )
 
 
 # T016: Playlist add-track (US4)
 @playlist_app.command("add-track")
+@handle_errors
 def playlist_add_track(
     playlist_id: str = typer.Option(..., "--playlist-id", help="Target playlist ID."),
     track_id: int = typer.Option(..., "--track-id", help="Track ID to add."),
@@ -443,41 +437,30 @@ def playlist_add_track(
     """Add an individual track to an existing playlist."""
     session = load_session()
     try:
-        try:
-            track = session.track(track_id)
-        except requests.exceptions.HTTPError:
-            typer.echo(f"Error: Track not found (ID: {track_id}).", err=True)
-            raise typer.Exit(code=1)
-        try:
-            playlist = session.playlist(playlist_id)
-        except requests.exceptions.HTTPError:
-            typer.echo(f"Error: Playlist not found (ID: {playlist_id}).", err=True)
-            raise typer.Exit(code=1)
-        playlist.add([str(track_id)])
-        data = {
-            "status": "success",
-            "track": track.name,
-            "playlist": playlist.name,
-        }
-        output(
-            data,
-            lambda d: f'Added track "{d["track"]}" to playlist "{d["playlist"]}".',
-        )
-    except typer.Exit:
-        raise
-    except requests.exceptions.ConnectionError:
-        typer.echo(
-            "Error: Unable to connect to Tidal. Check your network connection.",
-            err=True,
-        )
+        track = session.track(track_id)
+    except requests.exceptions.HTTPError:
+        typer.echo(f"Error: Track not found (ID: {track_id}).", err=True)
         raise typer.Exit(code=1)
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
+    try:
+        playlist = session.playlist(playlist_id)
+    except requests.exceptions.HTTPError:
+        typer.echo(f"Error: Playlist not found (ID: {playlist_id}).", err=True)
         raise typer.Exit(code=1)
+    playlist.add([str(track_id)])
+    data = {
+        "status": "success",
+        "track": track.name,
+        "playlist": playlist.name,
+    }
+    output(
+        data,
+        lambda d: f'Added track "{d["track"]}" to playlist "{d["playlist"]}".',
+    )
 
 
 # T017: Playlist remove-track (US4)
 @playlist_app.command("remove-track")
+@handle_errors
 def playlist_remove_track(
     playlist_id: str = typer.Option(..., "--playlist-id", help="Playlist ID."),
     track_id: int = typer.Option(..., "--track-id", help="Track ID to remove."),
@@ -485,49 +468,38 @@ def playlist_remove_track(
     """Remove a track from an existing playlist."""
     session = load_session()
     try:
-        try:
-            playlist = session.playlist(playlist_id)
-        except requests.exceptions.HTTPError:
-            typer.echo(f"Error: Playlist not found (ID: {playlist_id}).", err=True)
-            raise typer.Exit(code=1)
-        tracks = playlist.tracks()
-        track_index = None
-        track_name = None
-        for i, t in enumerate(tracks):
-            if t.id == track_id:
-                track_index = i
-                track_name = t.name
-                break
-        if track_index is None:
-            typer.echo(
-                f"Error: Track not found in playlist (ID: {track_id}).", err=True
-            )
-            raise typer.Exit(code=1)
-        playlist.remove_by_index(track_index)
-        data = {
-            "status": "success",
-            "track": track_name,
-            "playlist": playlist.name,
-        }
-        output(
-            data,
-            lambda d: f'Removed track "{d["track"]}" from playlist "{d["playlist"]}".',
-        )
-    except typer.Exit:
-        raise
-    except requests.exceptions.ConnectionError:
+        playlist = session.playlist(playlist_id)
+    except requests.exceptions.HTTPError:
+        typer.echo(f"Error: Playlist not found (ID: {playlist_id}).", err=True)
+        raise typer.Exit(code=1)
+    tracks = playlist.tracks()
+    track_index = None
+    track_name = None
+    for i, t in enumerate(tracks):
+        if t.id == track_id:
+            track_index = i
+            track_name = t.name
+            break
+    if track_index is None:
         typer.echo(
-            "Error: Unable to connect to Tidal. Check your network connection.",
-            err=True,
+            f"Error: Track not found in playlist (ID: {track_id}).", err=True
         )
         raise typer.Exit(code=1)
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+    playlist.remove_by_index(track_index)
+    data = {
+        "status": "success",
+        "track": track_name,
+        "playlist": playlist.name,
+    }
+    output(
+        data,
+        lambda d: f'Removed track "{d["track"]}" from playlist "{d["playlist"]}".',
+    )
 
 
 # T019: Library add (US6)
 @library_app.command("add")
+@handle_errors
 def library_add(
     artist_id: Optional[int] = typer.Option(None, "--artist-id", help="Artist ID to add."),
     album_id: Optional[int] = typer.Option(None, "--album-id", help="Album ID to add."),
@@ -542,49 +514,38 @@ def library_add(
         )
         raise typer.Exit(code=1)
     session = load_session()
-    try:
-        if artist_id is not None:
-            try:
-                artist = session.artist(artist_id)
-            except requests.exceptions.HTTPError:
-                typer.echo(f"Error: Artist not found (ID: {artist_id}).", err=True)
-                raise typer.Exit(code=1)
-            session.user.favorites.add_artist(artist_id)
-            data = {"status": "success", "type": "artist", "id": artist_id, "name": artist.name}
-            output(data, lambda d: f'Added artist "{d["name"]}" to library.')
-        elif album_id is not None:
-            try:
-                album = session.album(album_id)
-            except requests.exceptions.HTTPError:
-                typer.echo(f"Error: Album not found (ID: {album_id}).", err=True)
-                raise typer.Exit(code=1)
-            session.user.favorites.add_album(album_id)
-            data = {"status": "success", "type": "album", "id": album_id, "name": album.name}
-            output(data, lambda d: f'Added album "{d["name"]}" to library.')
-        else:
-            try:
-                track = session.track(track_id)
-            except requests.exceptions.HTTPError:
-                typer.echo(f"Error: Track not found (ID: {track_id}).", err=True)
-                raise typer.Exit(code=1)
-            session.user.favorites.add_track(track_id)
-            data = {"status": "success", "type": "track", "id": track_id, "name": track.name}
-            output(data, lambda d: f'Added track "{d["name"]}" to library.')
-    except typer.Exit:
-        raise
-    except requests.exceptions.ConnectionError:
-        typer.echo(
-            "Error: Unable to connect to Tidal. Check your network connection.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+    if artist_id is not None:
+        try:
+            artist = session.artist(artist_id)
+        except requests.exceptions.HTTPError:
+            typer.echo(f"Error: Artist not found (ID: {artist_id}).", err=True)
+            raise typer.Exit(code=1)
+        session.user.favorites.add_artist(artist_id)
+        data = {"status": "success", "type": "artist", "id": artist_id, "name": artist.name}
+        output(data, lambda d: f'Added artist "{d["name"]}" to library.')
+    elif album_id is not None:
+        try:
+            album = session.album(album_id)
+        except requests.exceptions.HTTPError:
+            typer.echo(f"Error: Album not found (ID: {album_id}).", err=True)
+            raise typer.Exit(code=1)
+        session.user.favorites.add_album(album_id)
+        data = {"status": "success", "type": "album", "id": album_id, "name": album.name}
+        output(data, lambda d: f'Added album "{d["name"]}" to library.')
+    else:
+        try:
+            track = session.track(track_id)
+        except requests.exceptions.HTTPError:
+            typer.echo(f"Error: Track not found (ID: {track_id}).", err=True)
+            raise typer.Exit(code=1)
+        session.user.favorites.add_track(track_id)
+        data = {"status": "success", "type": "track", "id": track_id, "name": track.name}
+        output(data, lambda d: f'Added track "{d["name"]}" to library.')
 
 
 # T020: Library remove (US6)
 @library_app.command("remove")
+@handle_errors
 def library_remove(
     artist_id: Optional[int] = typer.Option(None, "--artist-id", help="Artist ID to remove."),
     album_id: Optional[int] = typer.Option(None, "--album-id", help="Album ID to remove."),
@@ -599,45 +560,33 @@ def library_remove(
         )
         raise typer.Exit(code=1)
     session = load_session()
-    try:
-        if artist_id is not None:
-            try:
-                artist = session.artist(artist_id)
-            except requests.exceptions.HTTPError:
-                typer.echo(f"Error: Artist not found (ID: {artist_id}).", err=True)
-                raise typer.Exit(code=1)
-            session.user.favorites.remove_artist(artist_id)
-            data = {"status": "success", "type": "artist", "id": artist_id, "name": artist.name}
-            output(data, lambda d: f'Removed artist "{d["name"]}" from library.')
-        elif album_id is not None:
-            try:
-                album = session.album(album_id)
-            except requests.exceptions.HTTPError:
-                typer.echo(f"Error: Album not found (ID: {album_id}).", err=True)
-                raise typer.Exit(code=1)
-            session.user.favorites.remove_album(album_id)
-            data = {"status": "success", "type": "album", "id": album_id, "name": album.name}
-            output(data, lambda d: f'Removed album "{d["name"]}" from library.')
-        else:
-            try:
-                track = session.track(track_id)
-            except requests.exceptions.HTTPError:
-                typer.echo(f"Error: Track not found (ID: {track_id}).", err=True)
-                raise typer.Exit(code=1)
-            session.user.favorites.remove_track(track_id)
-            data = {"status": "success", "type": "track", "id": track_id, "name": track.name}
-            output(data, lambda d: f'Removed track "{d["name"]}" from library.')
-    except typer.Exit:
-        raise
-    except requests.exceptions.ConnectionError:
-        typer.echo(
-            "Error: Unable to connect to Tidal. Check your network connection.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+    if artist_id is not None:
+        try:
+            artist = session.artist(artist_id)
+        except requests.exceptions.HTTPError:
+            typer.echo(f"Error: Artist not found (ID: {artist_id}).", err=True)
+            raise typer.Exit(code=1)
+        session.user.favorites.remove_artist(artist_id)
+        data = {"status": "success", "type": "artist", "id": artist_id, "name": artist.name}
+        output(data, lambda d: f'Removed artist "{d["name"]}" from library.')
+    elif album_id is not None:
+        try:
+            album = session.album(album_id)
+        except requests.exceptions.HTTPError:
+            typer.echo(f"Error: Album not found (ID: {album_id}).", err=True)
+            raise typer.Exit(code=1)
+        session.user.favorites.remove_album(album_id)
+        data = {"status": "success", "type": "album", "id": album_id, "name": album.name}
+        output(data, lambda d: f'Removed album "{d["name"]}" from library.')
+    else:
+        try:
+            track = session.track(track_id)
+        except requests.exceptions.HTTPError:
+            typer.echo(f"Error: Track not found (ID: {track_id}).", err=True)
+            raise typer.Exit(code=1)
+        session.user.favorites.remove_track(track_id)
+        data = {"status": "success", "type": "track", "id": track_id, "name": track.name}
+        output(data, lambda d: f'Removed track "{d["name"]}" from library.')
 
 
 if __name__ == "__main__":
