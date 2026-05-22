@@ -1,8 +1,8 @@
 ---
 name: tidal-playlist
-description: Manage Tidal playlists — list, create, rename, delete, add or remove albums and tracks. Use when the user wants to work with playlists.
+description: Manage Tidal playlists — list, create, rename, delete, add or remove albums and tracks, and list tracks in a playlist. Use when the user wants to work with playlists.
 allowed-tools: Bash, Read, Grep
-argument-hint: "<list|create|rename|delete|add-album|add-track|remove-track> [options]"
+argument-hint: "<list|tracks|create|rename|delete|add-album|add-track|remove-track> [options]"
 ---
 
 # Tidal Playlist
@@ -15,6 +15,12 @@ Manage Tidal playlists: list, create, rename, delete, and add or remove content.
 - **Usage**: `tidal-cli --json playlist list`
 - **Arguments**: none
 - **Output**: `[{id, name, num_tracks}]`
+
+### playlist tracks
+- **Usage**: `tidal-cli --json playlist tracks --playlist-id <id>`
+- **Arguments**: `--playlist-id` (required)
+- **Output**: `[{track_number, id, title, artist, album, duration_seconds}]`
+  - `track_number` : position dans la playlist (1..N), pas le numéro sur l'album
 
 ### playlist create
 - **Usage**: `tidal-cli --json playlist create --name "<name>" [--desc "<description>"]`
@@ -50,16 +56,18 @@ Manage Tidal playlists: list, create, rename, delete, and add or remove content.
 
 1. Parse `$ARGUMENTS` to determine the operation (first word) and its parameters:
    - `list` — no additional arguments needed
+   - `tracks` — extract `--playlist-id`
    - `create` — extract `--name` and optionally `--desc` from arguments
    - `rename` — extract `--playlist-id` and `--name`
    - `delete` — extract `--playlist-id`
    - `add-album` — extract `--playlist-id` and `--album-id`
    - `add-track` — extract `--playlist-id` and `--track-id`
    - `remove-track` — extract `--playlist-id` and `--track-id`
-   - If no operation given, show usage: `/tidal-playlist <list|create|rename|delete|add-album|add-track|remove-track> [options]`
+   - If no operation given, show usage: `/tidal-playlist <list|tracks|create|rename|delete|add-album|add-track|remove-track> [options]`
 
 2. Run the appropriate command and parse JSON output:
    - **list** → format as table with columns `ID`, `Name`, `Tracks`
+   - **tracks** → format as numbered list: `#. Title — Artist [Album] MM:SS`
    - **create** → confirm: "Playlist created: **<name>** (ID: `<id>`)"
    - **rename** → confirm: "Playlist renamed: **<old_name>** → **<new_name>**"
    - **delete** → confirm: "Playlist **<name>** (ID: `<id>`) deleted."
