@@ -12,9 +12,9 @@ Manage Tidal playlists: list, create, rename, delete, set visibility, and add or
 ## Commands
 
 ### playlist list
-- **Usage**: `tidal-cli --json playlist list`
-- **Arguments**: none
-- **Output**: `[{id, name, num_tracks}]`
+- **Usage**: `tidal-cli --json playlist list [--public|--private]`
+- **Arguments**: `--public` / `--private` (optional) — restrict to public or private playlists; omit for all
+- **Output**: `[{id, name, num_tracks, public}]`
 
 ### playlist tracks
 - **Usage**: `tidal-cli --json playlist tracks --playlist-id <id>`
@@ -23,9 +23,11 @@ Manage Tidal playlists: list, create, rename, delete, set visibility, and add or
   - `track_number` : position dans la playlist (1..N), pas le numéro sur l'album
 
 ### playlist create
-- **Usage**: `tidal-cli --json playlist create --name "<name>" [--desc "<description>"]`
-- **Arguments**: `--name` (required), `--desc` (optional)
-- **Output**: `{id, name, description}`
+- **Usage**: `tidal-cli --json playlist create --name "<name>" [--desc "<description>"] [--public|--private]`
+- **Arguments**: `--name` (required), `--desc` (optional), `--public` / `--private` (optional, default private)
+- **Output**: `{id, name, description, public}`
+  - Tidal always creates playlists private, so `--public` triggers a second call. If it fails, the
+    playlist still exists: the command warns on stderr, returns `public: false` and exits 0.
 
 ### playlist rename
 - **Usage**: `tidal-cli --json playlist rename --playlist-id <id> --name "<new_name>"`
@@ -60,9 +62,9 @@ Manage Tidal playlists: list, create, rename, delete, set visibility, and add or
 ## Instructions
 
 1. Parse `$ARGUMENTS` to determine the operation (first word) and its parameters:
-   - `list` — no additional arguments needed
+   - `list` — optionally extract `--public` or `--private`
    - `tracks` — extract `--playlist-id`
-   - `create` — extract `--name` and optionally `--desc` from arguments
+   - `create` — extract `--name` and optionally `--desc`, `--public` or `--private`
    - `rename` — extract `--playlist-id` and `--name`
    - `delete` — extract `--playlist-id`
    - `visibility` — extract `--playlist-id` and `--public` or `--private`
@@ -72,9 +74,11 @@ Manage Tidal playlists: list, create, rename, delete, set visibility, and add or
    - If no operation given, show usage: `/tidal-playlist <list|tracks|create|rename|delete|visibility|add-album|add-track|remove-track> [options]`
 
 2. Run the appropriate command and parse JSON output:
-   - **list** → format as table with columns `ID`, `Name`, `Tracks`
+   - **list** → format as table with columns `ID`, `Name`, `Tracks`, `Visibility` (public/private)
    - **tracks** → format as numbered list: `#. Title — Artist [Album] MM:SS`
-   - **create** → confirm: "Playlist created: **<name>** (ID: `<id>`)"
+   - **create** → confirm: "Playlist created: **<name>** (ID: `<id>`)". If `--public` was requested
+     but the output shows `public: false`, warn that it was created private and suggest
+     `/tidal-playlist visibility --playlist-id <id> --public`.
    - **rename** → confirm: "Playlist renamed: **<old_name>** → **<new_name>**"
    - **visibility** → confirm: "Playlist **<name>** is now <public|private>." If `was_public` already equals the requested value, say it was already in that state.
    - **delete** → confirm: "Playlist **<name>** (ID: `<id>`) deleted."

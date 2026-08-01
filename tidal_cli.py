@@ -266,12 +266,26 @@ def search_track(
 # T011: Playlist list (US3)
 @playlist_app.command("list")
 @handle_errors
-def playlist_list():
+def playlist_list(
+    visibility: Optional[bool] = typer.Option(
+        None,
+        "--public/--private",
+        show_default=False,
+        help="Only list public or private playlists. Omit to list all.",
+    ),
+):
     """List playlists created by the user."""
     session = load_session()
     playlists = session.user.playlists()
+    if visibility is not None:
+        playlists = [p for p in playlists if bool(p.public) is visibility]
     data = [
-        {"id": str(p.id), "name": p.name, "num_tracks": p.num_tracks}
+        {
+            "id": str(p.id),
+            "name": p.name,
+            "num_tracks": p.num_tracks,
+            "public": bool(p.public),
+        }
         for p in playlists
     ]
 
@@ -279,7 +293,8 @@ def playlist_list():
         if not data:
             return ""
         return "\n".join(
-            f"ID: {p['id']}  Name: {p['name']} ({p['num_tracks']} tracks)"
+            f"ID: {p['id']}  Name: {p['name']} ({p['num_tracks']} tracks) "
+            f"[{'public' if p['public'] else 'private'}]"
             for p in data
         )
 
@@ -330,6 +345,9 @@ def playlist_tracks(
 def playlist_create(
     name: str = typer.Option(..., "--name", help="Playlist name."),
     desc: Optional[str] = typer.Option(None, "--desc", help="Playlist description."),
+    public: bool = typer.Option(
+        False, "--public/--private", help="Create the playlist public (default: private)."
+    ),
 ):
     """Create a new playlist."""
     if not name.strip():
@@ -337,10 +355,23 @@ def playlist_create(
         raise typer.Exit(code=1)
     session = load_session()
     new_playlist = session.user.create_playlist(name, desc or "")
+    # Tidal always creates playlists private: publishing needs a second call.
+    # Kept local so a failed publish does not mask the successful creation.
+    is_public = False
+    if public:
+        try:
+            new_playlist.set_playlist_public()
+            is_public = True
+        except Exception as e:
+            typer.echo(
+                f"Warning: playlist created but could not be made public: {e}",
+                err=True,
+            )
     data = {
         "id": str(new_playlist.id),
         "name": name,
         "description": desc,
+        "public": is_public,
     }
     output(data, lambda d: f"Created playlist: ID: {d['id']}")
 
