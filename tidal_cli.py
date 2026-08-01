@@ -370,6 +370,46 @@ def playlist_rename(
     output(data, lambda d: f'Renamed playlist "{d["old_name"]}" to "{d["new_name"]}".')
 
 
+@playlist_app.command("visibility")
+@handle_errors
+def playlist_visibility(
+    playlist_id: str = typer.Option(..., "--playlist-id", help="Playlist ID to update."),
+    public: bool = typer.Option(
+        ..., "--public/--private", help="Make the playlist public or private."
+    ),
+):
+    """Set an existing playlist as public or private."""
+    session = load_session()
+    try:
+        playlist = session.playlist(playlist_id)
+    except requests.exceptions.HTTPError:
+        typer.echo(f"Error: Playlist not found (ID: {playlist_id}).", err=True)
+        raise typer.Exit(code=1)
+    if not hasattr(playlist, "set_playlist_public"):
+        typer.echo(
+            f"Error: Playlist is not owned by the current user (ID: {playlist_id}).",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    was_public = bool(playlist.public)
+    if public:
+        playlist.set_playlist_public()
+    else:
+        playlist.set_playlist_private()
+    data = {
+        "status": "success",
+        "id": str(playlist_id),
+        "name": playlist.name,
+        "was_public": was_public,
+        "public": public,
+    }
+    output(
+        data,
+        lambda d: f'Playlist "{d["name"]}" is now {"public" if d["public"] else "private"}.',
+    )
+
+
 # T014: Playlist delete (US3)
 @playlist_app.command("delete")
 @handle_errors
